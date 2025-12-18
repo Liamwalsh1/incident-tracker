@@ -1,0 +1,440 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Incident Tracker — Staff Triage</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+    .cursor-pointer { cursor: pointer; }
+  </style>
+</head>
+<body class="bg-light">
+  <div class="container py-4" style="max-width: 1200px;">
+    <div class="d-flex align-items-center justify-content-between mb-3">
+      <div>
+        <h1 class="h4 mb-0">Staff Triage</h1>
+        <div class="text-muted">Real-time incident queue with assignment, notes, and resolution.</div>
+      </div>
+      <div class="d-flex gap-2">
+        <a class="btn btn-outline-secondary btn-sm" href="./public.html">Public</a>
+        <a class="btn btn-outline-secondary btn-sm" href="./insights.html">Insights</a>
+      </div>
+    </div>
+
+    <div id="msg" class="alert d-none" role="alert"></div>
+
+    <!-- Auth card -->
+    <div id="authCard" class="card shadow-sm mb-3">
+      <div class="card-body">
+        <div class="row g-2 align-items-end">
+          <div class="col-md-4">
+            <label class="form-label">Staff email</label>
+            <input id="email" class="form-control" type="email" placeholder="staff@company.com">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Password</label>
+            <input id="password" class="form-control" type="password" placeholder="••••••••">
+          </div>
+          <div class="col-md-4 d-flex gap-2">
+            <button id="loginBtn" class="btn btn-primary">Sign in</button>
+            <button id="logoutBtn" class="btn btn-outline-secondary d-none">Sign out</button>
+            <div class="ms-auto text-muted small align-self-center" id="whoami"></div>
+          </div>
+        </div>
+        <div class="small text-muted mt-2">Only authenticated staff can view/update incidents.</div>
+      </div>
+    </div>
+
+    <!-- Main staff UI -->
+    <div id="staffUI" class="row g-3 d-none">
+      <div class="col-lg-7">
+        <div class="card shadow-sm">
+          <div class="card-body">
+            <div class="d-flex gap-2 flex-wrap align-items-center mb-3">
+              <div class="fw-semibold">Queue</div>
+              <select id="filterStatus" class="form-select form-select-sm" style="max-width: 220px;">
+                <option value="all">All statuses</option>
+                <option value="new">New</option>
+                <option value="triaging">Triaging</option>
+                <option value="in_progress">In progress</option>
+                <option value="resolved">Resolved</option>
+              </select>
+              <select id="filterSeverity" class="form-select form-select-sm" style="max-width: 220px;">
+                <option value="all">All severities</option>
+                <option value="critical">Critical</option>
+                <option value="high">High</option>
+                <option value="medium">Medium</option>
+                <option value="low">Low</option>
+              </select>
+              <input id="search" class="form-control form-control-sm" style="max-width: 280px;" placeholder="Search title/email/ref…">
+              <div class="ms-auto text-muted small" id="liveStatus">Offline</div>
+            </div>
+
+            <div class="table-responsive">
+              <table class="table table-sm align-middle">
+                <thead>
+                  <tr>
+                    <th>Ref</th>
+                    <th>Title</th>
+                    <th>Severity</th>
+                    <th>Status</th>
+                    <th>Owner</th>
+                    <th>Created</th>
+                  </tr>
+                </thead>
+                <tbody id="rows">
+                  <tr><td colspan="6" class="text-muted">Sign in to load incidents.</td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="text-muted small">Tip: click a row to open details and update.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-lg-5">
+        <div class="card shadow-sm">
+          <div class="card-body">
+            <div class="d-flex justify-content-between align-items-center">
+              <div class="fw-semibold">Incident details</div>
+              <div class="text-muted small mono" id="selectedId"></div>
+            </div>
+            <hr>
+
+            <div id="emptyDetails" class="text-muted">Select an incident from the queue.</div>
+
+            <div id="details" class="d-none">
+              <div class="mb-2">
+                <div class="text-muted small">Public Reference</div>
+                <div class="mono" id="d_ref"></div>
+              </div>
+
+              <div class="mb-2">
+                <div class="text-muted small">Title</div>
+                <div id="d_title" class="fw-semibold"></div>
+              </div>
+
+              <div class="mb-2">
+                <div class="text-muted small">Reporter</div>
+                <div><span id="d_name"></span> — <span class="mono" id="d_email"></span></div>
+              </div>
+
+              <div class="mb-3">
+                <div class="text-muted small">Description</div>
+                <div id="d_desc" style="white-space: pre-wrap;"></div>
+              </div>
+
+              <div class="row g-2">
+                <div class="col-md-6">
+                  <label class="form-label">Severity</label>
+                  <select id="u_severity" class="form-select form-select-sm">
+                    <option value="low">Low</option>
+                    <option value="medium">Medium</option>
+                    <option value="high">High</option>
+                    <option value="critical">Critical</option>
+                  </select>
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label">Status</label>
+                  <select id="u_status" class="form-select form-select-sm">
+                    <option value="new">New</option>
+                    <option value="triaging">Triaging</option>
+                    <option value="in_progress">In progress</option>
+                    <option value="resolved">Resolved</option>
+                  </select>
+                </div>
+                <div class="col-md-12">
+                  <label class="form-label">Owner</label>
+                  <input id="u_owner" class="form-control form-control-sm" maxlength="60" placeholder="e.g., Alex / Team Support">
+                  <div class="form-text">Required when moving to In progress or Resolved.</div>
+                </div>
+              </div>
+
+              <div class="mt-3">
+                <label class="form-label">Add internal note</label>
+                <textarea id="u_note" class="form-control form-control-sm" rows="3" maxlength="800" placeholder="Context, actions taken, customer follow-up…"></textarea>
+                <div class="d-flex gap-2 mt-2">
+                  <button id="saveBtn" class="btn btn-primary btn-sm">Save updates</button>
+                  <button id="resolveBtn" class="btn btn-success btn-sm">Resolve</button>
+                </div>
+              </div>
+
+              <hr>
+              <div class="fw-semibold mb-2">Internal notes</div>
+              <div id="notes" class="small text-muted">No notes yet.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div><!-- /staffUI -->
+  </div>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js";
+    import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
+    import {
+      getFirestore, collection, query, orderBy, onSnapshot,
+      doc, updateDoc, serverTimestamp, arrayUnion, Timestamp
+    } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
+
+    const firebaseConfig = {
+      apiKey: "YOUR_API_KEY",
+      authDomain: "YOUR_PROJECT.firebaseapp.com",
+      projectId: "YOUR_PROJECT_ID",
+      storageBucket: "YOUR_PROJECT.appspot.com",
+      messagingSenderId: "YOUR_SENDER_ID",
+      appId: "YOUR_APP_ID"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+
+    const $ = (id) => document.getElementById(id);
+
+    function showMsg(type, text) {
+      const msg = $("msg");
+      msg.className = "alert";
+      msg.classList.add(type === "success" ? "alert-success" : "alert-danger");
+      msg.textContent = text;
+      msg.classList.remove("d-none");
+      setTimeout(() => msg.classList.add("d-none"), 5000);
+    }
+
+    function fmtDate(ts) {
+      if (!ts) return "—";
+      const d = ts.toDate();
+      return d.toLocaleString();
+    }
+
+    function badgeForSeverity(sev) {
+      const map = { low: "secondary", medium: "info", high: "warning", critical: "danger" };
+      const cls = map[sev] || "secondary";
+      return `<span class="badge text-bg-${cls}">${sev}</span>`;
+    }
+
+    function badgeForStatus(st) {
+      const map = { new: "secondary", triaging: "info", in_progress: "warning", resolved: "success" };
+      const cls = map[st] || "secondary";
+      return `<span class="badge text-bg-${cls}">${st}</span>`;
+    }
+
+    // --------------------------
+    // Auth
+    // --------------------------
+    $("loginBtn").addEventListener("click", async () => {
+      const email = $("email").value.trim();
+      const pass = $("password").value;
+
+      if (!email || !pass) return showMsg("error", "Enter email and password.");
+
+      try {
+        await signInWithEmailAndPassword(auth, email, pass);
+        showMsg("success", "Signed in.");
+      } catch (e) {
+        console.error(e);
+        showMsg("error", "Sign-in failed. Check credentials.");
+      }
+    });
+
+    $("logoutBtn").addEventListener("click", async () => {
+      await signOut(auth);
+      showMsg("success", "Signed out.");
+    });
+
+    // --------------------------
+    // Real-time queue
+    // --------------------------
+    let unsub = null;
+    let allDocs = [];
+    let selected = null;
+
+    function applyFilters() {
+      const st = $("filterStatus").value;
+      const sev = $("filterSeverity").value;
+      const q = $("search").value.trim().toLowerCase();
+
+      const filtered = allDocs.filter(x => {
+        const okSt = (st === "all") || x.status === st;
+        const okSev = (sev === "all") || x.severity === sev;
+        const hay = `${x.title} ${x.reporterEmail} ${x.publicReference}`.toLowerCase();
+        const okQ = !q || hay.includes(q);
+        return okSt && okSev && okQ;
+      });
+
+      renderRows(filtered);
+    }
+
+    function renderRows(items) {
+      const rows = $("rows");
+      if (!items.length) {
+        rows.innerHTML = `<tr><td colspan="6" class="text-muted">No matching incidents.</td></tr>`;
+        return;
+      }
+      rows.innerHTML = items.map(x => `
+        <tr class="cursor-pointer" data-id="${x.id}">
+          <td class="mono">${x.publicReference || "—"}</td>
+          <td>${escapeHtml(x.title || "")}</td>
+          <td>${badgeForSeverity(x.severity)}</td>
+          <td>${badgeForStatus(x.status)}</td>
+          <td>${escapeHtml(x.owner || "—")}</td>
+          <td class="text-muted small">${fmtDate(x.createdAt)}</td>
+        </tr>
+      `).join("");
+
+      [...rows.querySelectorAll("tr[data-id]")].forEach(tr => {
+        tr.addEventListener("click", () => openDetails(tr.getAttribute("data-id")));
+      });
+    }
+
+    function escapeHtml(s) {
+      return (s || "").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;");
+    }
+
+    function openDetails(id) {
+      selected = allDocs.find(x => x.id === id);
+      if (!selected) return;
+
+      $("selectedId").textContent = id;
+      $("emptyDetails").classList.add("d-none");
+      $("details").classList.remove("d-none");
+
+      $("d_ref").textContent = selected.publicReference || "—";
+      $("d_title").textContent = selected.title || "";
+      $("d_name").textContent = selected.reporterName || "—";
+      $("d_email").textContent = selected.reporterEmail || "—";
+      $("d_desc").textContent = selected.description || "—";
+
+      $("u_severity").value = selected.severity || "low";
+      $("u_status").value = selected.status || "new";
+      $("u_owner").value = selected.owner || "";
+      $("u_note").value = "";
+
+      renderNotes(selected.internalNotes || []);
+    }
+
+    function renderNotes(notesArr) {
+      if (!notesArr.length) {
+        $("notes").innerHTML = `<div class="text-muted">No notes yet.</div>`;
+        return;
+      }
+      $("notes").innerHTML = notesArr
+        .slice()
+        .sort((a,b) => (a.createdAt?.seconds||0) - (b.createdAt?.seconds||0))
+        .map(n => `
+          <div class="border rounded p-2 mb-2 bg-white">
+            <div class="d-flex justify-content-between">
+              <div class="fw-semibold">${escapeHtml(n.author || "staff")}</div>
+              <div class="text-muted small">${n.createdAt ? new Date(n.createdAt.seconds*1000).toLocaleString() : ""}</div>
+            </div>
+            <div style="white-space: pre-wrap;">${escapeHtml(n.text || "")}</div>
+          </div>
+        `).join("");
+    }
+
+    function validateStaffUpdate(nextStatus, owner) {
+      if ((nextStatus === "in_progress" || nextStatus === "resolved") && !owner.trim()) {
+        return "Owner is required for In progress or Resolved.";
+      }
+      return null;
+    }
+
+    async function saveUpdates(forceResolve = false) {
+      if (!selected) return showMsg("error", "Select an incident first.");
+
+      const nextSeverity = $("u_severity").value;
+      const nextStatus = forceResolve ? "resolved" : $("u_status").value;
+      const owner = $("u_owner").value.trim();
+      const noteText = $("u_note").value.trim();
+
+      const err = validateStaffUpdate(nextStatus, owner);
+      if (err) return showMsg("error", err);
+
+      const updates = {
+        severity: nextSeverity,
+        status: nextStatus,
+        owner: owner,
+        updatedAt: serverTimestamp()
+      };
+
+      if (nextStatus === "resolved") {
+        updates.resolvedAt = serverTimestamp();
+      } else {
+        updates.resolvedAt = null;
+      }
+
+      if (noteText) {
+        const user = auth.currentUser;
+        updates.internalNotes = arrayUnion({
+          text: noteText,
+          author: user?.email || "staff",
+          createdAt: Timestamp.now()
+        });
+      }
+
+      try {
+        await updateDoc(doc(db, "incidents", selected.id), updates);
+        showMsg("success", forceResolve ? "Incident resolved." : "Updates saved.");
+        $("u_note").value = "";
+      } catch (e) {
+        console.error(e);
+        showMsg("error", "Update failed. Check permissions and try again.");
+      }
+    }
+
+    $("saveBtn").addEventListener("click", () => saveUpdates(false));
+    $("resolveBtn").addEventListener("click", () => saveUpdates(true));
+
+    ["filterStatus","filterSeverity","search"].forEach(id => {
+      $(id).addEventListener("input", applyFilters);
+      $(id).addEventListener("change", applyFilters);
+    });
+
+    onAuthStateChanged(auth, (user) => {
+      const authed = !!user;
+
+      $("logoutBtn").classList.toggle("d-none", !authed);
+      $("whoami").textContent = authed ? user.email : "";
+      $("staffUI").classList.toggle("d-none", !authed);
+
+      if (!authed) {
+        $("liveStatus").textContent = "Offline";
+        $("rows").innerHTML = `<tr><td colspan="6" class="text-muted">Sign in to load incidents.</td></tr>`;
+        $("details").classList.add("d-none");
+        $("emptyDetails").classList.remove("d-none");
+        $("selectedId").textContent = "";
+        allDocs = [];
+        selected = null;
+        if (unsub) unsub();
+        unsub = null;
+        return;
+      }
+
+      // Subscribe real-time
+      const q = query(collection(db, "incidents"), orderBy("createdAt", "desc"));
+      unsub = onSnapshot(q, (snap) => {
+        $("liveStatus").textContent = "Live";
+        allDocs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+        applyFilters();
+
+        // If selected exists, refresh details live
+        if (selected) {
+          const fresh = allDocs.find(x => x.id === selected.id);
+          if (fresh) {
+            selected = fresh;
+            openDetails(selected.id);
+          }
+        }
+      }, (err) => {
+        console.error(err);
+        $("liveStatus").textContent = "Error";
+        showMsg("error", "Live updates failed (permissions/network).");
+      });
+    });
+  </script>
+</body>
+</html>

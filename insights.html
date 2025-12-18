@@ -1,0 +1,308 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Incident Tracker — Insights</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+  </style>
+</head>
+<body class="bg-light">
+  <div class="container py-4" style="max-width: 1100px;">
+    <div class="d-flex align-items-center justify-content-between mb-3">
+      <div>
+        <h1 class="h4 mb-0">Operational Insights</h1>
+        <div class="text-muted">Open issues by severity + last 24h activity + mean time to resolve (MTTR).</div>
+      </div>
+      <div class="d-flex gap-2">
+        <a class="btn btn-outline-secondary btn-sm" href="./public.html">Public</a>
+        <a class="btn btn-outline-secondary btn-sm" href="./staff.html">Staff</a>
+      </div>
+    </div>
+
+    <div id="msg" class="alert d-none" role="alert"></div>
+
+    <!-- Auth strip -->
+    <div class="card shadow-sm mb-3">
+      <div class="card-body">
+        <div class="row g-2 align-items-end">
+          <div class="col-md-4">
+            <label class="form-label">Staff email</label>
+            <input id="email" class="form-control" type="email" placeholder="staff@company.com">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Password</label>
+            <input id="password" class="form-control" type="password" placeholder="••••••••">
+          </div>
+          <div class="col-md-4 d-flex gap-2">
+            <button id="loginBtn" class="btn btn-primary">Sign in</button>
+            <button id="logoutBtn" class="btn btn-outline-secondary d-none">Sign out</button>
+            <div class="ms-auto text-muted small" id="whoami"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="dash" class="row g-3 d-none">
+      <div class="col-lg-4">
+        <div class="card shadow-sm">
+          <div class="card-body">
+            <div class="text-muted small">Open issues</div>
+            <div class="display-6" id="openCount">—</div>
+            <div class="text-muted small">Resolved issues</div>
+            <div class="h3" id="resolvedCount">—</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-lg-4">
+        <div class="card shadow-sm">
+          <div class="card-body">
+            <div class="text-muted small">Activity (last 24 hours)</div>
+            <div class="display-6" id="last24">—</div>
+            <div class="text-muted small">Includes created or updated incidents.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-lg-4">
+        <div class="card shadow-sm">
+          <div class="card-body">
+            <div class="text-muted small">Mean time to resolve (MTTR)</div>
+            <div class="display-6" id="mttr">—</div>
+            <div class="text-muted small">Average over resolved incidents with timestamps.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-lg-6">
+        <div class="card shadow-sm">
+          <div class="card-body">
+            <div class="fw-semibold mb-2">Open issues by severity</div>
+            <div id="openBySeverity"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-lg-6">
+        <div class="card shadow-sm">
+          <div class="card-body">
+            <div class="fw-semibold mb-2">Counts by status</div>
+            <div id="byStatus"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-12">
+        <div class="card shadow-sm">
+          <div class="card-body">
+            <div class="fw-semibold mb-2">Recently updated (top 10)</div>
+            <div class="table-responsive">
+              <table class="table table-sm align-middle">
+                <thead>
+                  <tr>
+                    <th>Ref</th>
+                    <th>Title</th>
+                    <th>Status</th>
+                    <th>Severity</th>
+                    <th>Owner</th>
+                    <th>Updated</th>
+                  </tr>
+                </thead>
+                <tbody id="recentRows"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /dash -->
+  </div>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js";
+    import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
+    import { getFirestore, collection, query, orderBy, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
+
+    const firebaseConfig = {
+      apiKey: "YOUR_API_KEY",
+      authDomain: "YOUR_PROJECT.firebaseapp.com",
+      projectId: "YOUR_PROJECT_ID",
+      storageBucket: "YOUR_PROJECT.appspot.com",
+      messagingSenderId: "YOUR_SENDER_ID",
+      appId: "YOUR_APP_ID"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+    const $ = (id) => document.getElementById(id);
+
+    function showMsg(type, text) {
+      const msg = $("msg");
+      msg.className = "alert";
+      msg.classList.add(type === "success" ? "alert-success" : "alert-danger");
+      msg.textContent = text;
+      msg.classList.remove("d-none");
+      setTimeout(() => msg.classList.add("d-none"), 5000);
+    }
+
+    function escapeHtml(s) {
+      return (s || "").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;");
+    }
+
+    function fmtDate(ts) {
+      if (!ts) return "—";
+      return ts.toDate().toLocaleString();
+    }
+
+    function fmtDuration(ms) {
+      const minutes = Math.round(ms / 60000);
+      if (minutes < 60) return `${minutes}m`;
+      const hours = Math.round(minutes / 60);
+      if (hours < 48) return `${hours}h`;
+      const days = Math.round(hours / 24);
+      return `${days}d`;
+    }
+
+    $("loginBtn").addEventListener("click", async () => {
+      const email = $("email").value.trim();
+      const pass = $("password").value;
+      if (!email || !pass) return showMsg("error", "Enter email and password.");
+
+      try {
+        await signInWithEmailAndPassword(auth, email, pass);
+        showMsg("success", "Signed in.");
+      } catch (e) {
+        console.error(e);
+        showMsg("error", "Sign-in failed. Check credentials.");
+      }
+    });
+
+    $("logoutBtn").addEventListener("click", async () => {
+      await signOut(auth);
+      showMsg("success", "Signed out.");
+    });
+
+    let unsub = null;
+    onAuthStateChanged(auth, (user) => {
+      const authed = !!user;
+      $("logoutBtn").classList.toggle("d-none", !authed);
+      $("whoami").textContent = authed ? user.email : "";
+      $("dash").classList.toggle("d-none", !authed);
+
+      if (!authed) {
+        if (unsub) unsub();
+        unsub = null;
+        return;
+      }
+
+      const q = query(collection(db, "incidents"), orderBy("updatedAt", "desc"));
+      unsub = onSnapshot(q, (snap) => {
+        const incidents = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        renderInsights(incidents);
+      }, (err) => {
+        console.error(err);
+        showMsg("error", "Failed to load insights (permissions/network).");
+      });
+    });
+
+    function renderInsights(incidents) {
+      const now = Date.now();
+      const dayAgo = now - 24 * 60 * 60 * 1000;
+
+      const byStatus = { new:0, triaging:0, in_progress:0, resolved:0 };
+      const openBySeverity = { low:0, medium:0, high:0, critical:0 };
+      let openCount = 0;
+      let resolvedCount = 0;
+
+      // Activity last 24h: updatedAt OR createdAt within 24h
+      let last24 = 0;
+
+      // MTTR
+      let mttrSum = 0;
+      let mttrN = 0;
+
+      for (const x of incidents) {
+        const st = x.status || "new";
+        byStatus[st] = (byStatus[st] || 0) + 1;
+
+        if (st !== "resolved") {
+          openCount++;
+          const sev = x.severity || "low";
+          openBySeverity[sev] = (openBySeverity[sev] || 0) + 1;
+        } else {
+          resolvedCount++;
+        }
+
+        const updated = x.updatedAt?.toDate?.()?.getTime?.() ?? 0;
+        const created = x.createdAt?.toDate?.()?.getTime?.() ?? 0;
+        if (updated >= dayAgo || created >= dayAgo) last24++;
+
+        // MTTR: createdAt -> resolvedAt (only if both exist)
+        if (st === "resolved" && x.createdAt?.toDate && x.resolvedAt?.toDate) {
+          const c = x.createdAt.toDate().getTime();
+          const r = x.resolvedAt.toDate().getTime();
+          if (r >= c) {
+            mttrSum += (r - c);
+            mttrN++;
+          }
+        }
+      }
+
+      $("openCount").textContent = openCount;
+      $("resolvedCount").textContent = resolvedCount;
+      $("last24").textContent = last24;
+
+      $("mttr").textContent = mttrN ? fmtDuration(mttrSum / mttrN) : "—";
+
+      $("openBySeverity").innerHTML = `
+        ${sevRow("critical", openBySeverity.critical)}
+        ${sevRow("high", openBySeverity.high)}
+        ${sevRow("medium", openBySeverity.medium)}
+        ${sevRow("low", openBySeverity.low)}
+      `;
+
+      $("byStatus").innerHTML = `
+        ${stRow("new", byStatus.new || 0)}
+        ${stRow("triaging", byStatus.triaging || 0)}
+        ${stRow("in_progress", byStatus.in_progress || 0)}
+        ${stRow("resolved", byStatus.resolved || 0)}
+      `;
+
+      // Recently updated top 10
+      const top = incidents.slice(0, 10);
+      $("recentRows").innerHTML = top.map(x => `
+        <tr>
+          <td class="mono">${escapeHtml(x.publicReference || "—")}</td>
+          <td>${escapeHtml(x.title || "")}</td>
+          <td>${escapeHtml(x.status || "")}</td>
+          <td>${escapeHtml(x.severity || "")}</td>
+          <td>${escapeHtml(x.owner || "—")}</td>
+          <td class="text-muted small">${fmtDate(x.updatedAt || x.createdAt)}</td>
+        </tr>
+      `).join("") || `<tr><td colspan="6" class="text-muted">No data.</td></tr>`;
+    }
+
+    function sevRow(label, value) {
+      return `
+        <div class="d-flex justify-content-between border rounded p-2 mb-2 bg-white">
+          <div class="fw-semibold">${label}</div>
+          <div class="mono">${value}</div>
+        </div>
+      `;
+    }
+
+    function stRow(label, value) {
+      return `
+        <div class="d-flex justify-content-between border rounded p-2 mb-2 bg-white">
+          <div class="fw-semibold">${label}</div>
+          <div class="mono">${value}</div>
+        </div>
+      `;
+    }
+  </script>
+</body>
+</html>
